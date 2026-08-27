@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# USB portable runtime (created by scripts/prepare.ps1)
+runtime/python/
+vendor/wheels/*.whl
+vendor/wheels/constraints.txt
+vendor/stage/
+models/easyocr/*.pth
+models/easyocr/*.zip
+models/ov_cache/*
+!models/ov_cache/.gitkeep
+models/rapidocr/*
+!models/rapidocr/.gitkeep
+photos/*
+!photos/.gitkeep
+ocr_report.csv
