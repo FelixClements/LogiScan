@@ -27,6 +27,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Copying Tcl/Tk into the USB Python if needed...
+"%PY%" -m logiscan.tcltk
+if errorlevel 1 (
+  echo Tcl/Tk copy failed. Re-run scripts\prepare.ps1 on a trusted PC so vendor\tcltk is staged.
+  exit /b 1
+)
+
 echo.
 echo Hardware probe:
 "%PY%" -m logiscan --check-hardware
