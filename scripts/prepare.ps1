@@ -115,8 +115,6 @@ $env:PYTHONPATH = $Root
 Write-Host "==> Copying vendor/tcltk into runtime/python"
 & $python -m logiscan.tcltk
 if ($LASTEXITCODE -ne 0) { throw "logiscan.tcltk copy failed; vendor/tcltk is incomplete" }
-Get-ChildItem -Path (Join-Path $Root "vendor\tcltk") -Filter "zlib1.dll" |
-    ForEach-Object { Copy-Item -Force $_.FullName $RuntimeDir }
 $getPip = Join-Path $StageDir "get-pip.py"
 Get-RemoteFile -Url $GetPipUrl -Destination $getPip
 Write-Host "==> Bootstrapping pip"

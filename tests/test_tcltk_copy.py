@@ -24,6 +24,7 @@ class CopyTcltkTests(unittest.TestCase):
             (vendor / "_tkinter.pyd").write_bytes(b"pyd")
             (vendor / "tcl86t.dll").write_bytes(b"dll")
             (vendor / "tk86t.dll").write_bytes(b"dll")
+            (vendor / "zlib1.dll").write_bytes(b"dll")
             (vendor / "tcl" / "tcl8.6" / "init.tcl").write_text("x", encoding="utf-8")
             (vendor / "Lib" / "site-packages" / "tkinter" / "__init__.py").write_text(
                 "# tk", encoding="utf-8"
@@ -32,6 +33,7 @@ class CopyTcltkTests(unittest.TestCase):
             self.assertEqual((runtime / "_tkinter.pyd").read_bytes(), b"pyd")
             self.assertTrue((runtime / "tcl86t.dll").exists())
             self.assertTrue((runtime / "tk86t.dll").exists())
+            self.assertTrue((runtime / "zlib1.dll").exists())
             self.assertTrue((runtime / "tcl" / "tcl8.6" / "init.tcl").exists())
             self.assertTrue(
                 (runtime / "Lib" / "site-packages" / "tkinter" / "__init__.py").exists()

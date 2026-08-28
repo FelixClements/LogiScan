@@ -23,6 +23,9 @@ def copy_tcltk(vendor: Path, runtime: Path) -> bool:
             shutil.copy2(dll, runtime / dll.name)
         for dll in vendor.glob("tk86*.dll"):
             shutil.copy2(dll, runtime / dll.name)
+        zlib_dll = vendor / "zlib1.dll"
+        if zlib_dll.is_file():
+            shutil.copy2(zlib_dll, runtime / "zlib1.dll")
         for rel in ("tcl/tcl8.6", "tcl/tk8.6", "Lib/site-packages/tkinter"):
             src = vendor.joinpath(*rel.split("/"))
             dest = runtime.joinpath(*rel.split("/"))
