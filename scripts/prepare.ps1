@@ -150,9 +150,22 @@ print('Models ready in', model_dir)
 "@
 if ($LASTEXITCODE -ne 0) { throw "RapidOCR model prefetch failed" }
 
+Write-Host "==> Compiling LogiScan.exe"
+$csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if (-not (Test-Path $csc)) {
+    $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
+}
+if (-not (Test-Path $csc)) {
+    throw "csc.exe not found under Microsoft.NET\Framework64 or Framework v4.0.30319"
+}
+$launcherSrc = Join-Path $Root "scripts\LogiScanLauncher\Program.cs"
+$exe = Join-Path $Root "LogiScan.exe"
+& $csc /nologo /target:winexe /r:System.Windows.Forms.dll /r:System.dll /out:$exe $launcherSrc
+if ($LASTEXITCODE -ne 0) { throw "LogiScan.exe compile failed" }
+if (-not (Test-Path $exe)) { throw "LogiScan.exe was not written to $exe" }
+
 Write-Host ""
 Write-Host "Prepare complete. Copy this folder to a USB stick, then on the corporate laptop run:"
 Write-Host "  scripts\install.bat"
-Write-Host "  scripts\run.bat"
-Write-Host "  scripts\run_gui.bat"
+Write-Host "After that, operators double-click LogiScan.exe"
 Write-Host "Drop images in photos\ first."
