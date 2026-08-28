@@ -60,6 +60,36 @@ if (-not $pth) { throw "python*._pth missing in $RuntimeDir" }
     "import site"
 ) | Set-Content -Path $pth.FullName -Encoding ascii
 
+Write-Host "==> Vendoring Tcl/Tk from Python NuGet $PythonVersion"
+$nugetName = "python.$PythonVersion.nupkg"
+$nugetZip = Join-Path $StageDir $nugetName
+Get-RemoteFile -Url "https://www.nuget.org/api/v2/package/python/$PythonVersion" -Destination $nugetZip
+$nugetExtract = Join-Path $StageDir "python-nuget-$PythonVersion"
+if (-not (Test-Path (Join-Path $RuntimeDir "_tkinter.pyd"))) {
+    if (Test-Path $nugetExtract) { Remove-Item -Recurse -Force $nugetExtract }
+    New-Item -ItemType Directory -Force -Path $nugetExtract | Out-Null
+    Expand-Archive -Path $nugetZip -DestinationPath $nugetExtract -Force
+    $tkinterPyd = Get-ChildItem -Path $nugetExtract -Recurse -Filter "_tkinter.pyd" | Select-Object -First 1
+    if (-not $tkinterPyd) { throw "_tkinter.pyd missing from Python NuGet package" }
+    Copy-Item -Force $tkinterPyd.FullName (Join-Path $RuntimeDir "_tkinter.pyd")
+    $dllDir = $tkinterPyd.DirectoryName
+    Get-ChildItem -Path $dllDir -Filter "tcl86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $RuntimeDir }
+    Get-ChildItem -Path $dllDir -Filter "tk86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $RuntimeDir }
+    $tcl86 = Get-ChildItem -Path $nugetExtract -Recurse -Directory -Filter "tcl8.6" | Select-Object -First 1
+    if (-not $tcl86) { throw "tcl8.6 missing from Python NuGet package" }
+    $tclDest = Join-Path $RuntimeDir "tcl"
+    if (Test-Path $tclDest) { Remove-Item -Recurse -Force $tclDest }
+    Copy-Item -Recurse -Force $tcl86.Parent.FullName $tclDest
+    $tkinterPkg = Get-ChildItem -Path $nugetExtract -Recurse -Directory -Filter "tkinter" |
+        Where-Object { Test-Path (Join-Path $_.FullName "__init__.py") } |
+        Select-Object -First 1
+    if (-not $tkinterPkg) { throw "tkinter package missing from Python NuGet package" }
+    $siteTk = Join-Path $RuntimeDir "Lib\site-packages\tkinter"
+    New-Item -ItemType Directory -Force -Path (Split-Path $siteTk) | Out-Null
+    if (Test-Path $siteTk) { Remove-Item -Recurse -Force $siteTk }
+    Copy-Item -Recurse -Force $tkinterPkg.FullName $siteTk
+}
+
 $python = Join-Path $RuntimeDir "python.exe"
 $getPip = Join-Path $StageDir "get-pip.py"
 Get-RemoteFile -Url $GetPipUrl -Destination $getPip
@@ -100,4 +130,5 @@ Write-Host ""
 Write-Host "Prepare complete. Copy this folder to a USB stick, then on the corporate laptop run:"
 Write-Host "  scripts\install.bat"
 Write-Host "  scripts\run.bat"
+Write-Host "  scripts\run_gui.bat"
 Write-Host "Drop images in photos\ first."

@@ -6,12 +6,9 @@ import argparse
 import logging
 from pathlib import Path
 
-from logiscan.config import STATUS_ERROR, Config
-from logiscan.hardware import DirectMLUnavailableError, probe_hardware
-from logiscan.images import list_images
-from logiscan.index import build_index
-from logiscan.processor import OCRProcessor
-from logiscan.report import ReportManager
+from logiscan.batch import run_batch
+from logiscan.config import Config
+from logiscan.hardware import probe_hardware
 
 LOGGER = logging.getLogger("logiscan")
 
@@ -40,14 +37,6 @@ def configure_logging() -> None:
     )
 
 
-def _require_dir(path: Path, label: str) -> str | None:
-    if not path.exists():
-        return f"{label} does not exist: {path}"
-    if not path.is_dir():
-        return f"{label} is not a directory: {path}"
-    return None
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_logging()
@@ -64,45 +53,4 @@ def main(argv: list[str] | None = None) -> int:
         log_path=args.log_file,
         report_path=args.report_file,
     ).resolved()
-
-    for path, label in (
-        (config.photos_dir, "Input directory"),
-        (config.search_root, "Search root"),
-    ):
-        error = _require_dir(path, label)
-        if error:
-            LOGGER.error("%s", error)
-            return 1
-
-    images = list_images(config.photos_dir, config.image_suffixes)
-    if not images:
-        LOGGER.warning("No image files in %s", config.photos_dir)
-        return 0
-
-    index = build_index(config.search_root)
-    try:
-        processor = OCRProcessor(config, index)
-    except DirectMLUnavailableError:
-        LOGGER.exception("DirectML iGPU is required; refusing CPU OCR.")
-        return 2
-    except Exception:
-        LOGGER.exception("Failed to initialize the OCR engine.")
-        return 2
-
-    reporter = ReportManager(config)
-    LOGGER.info("Processing %s image(s) from %s", len(images), config.photos_dir)
-    for path in images:
-        result = processor.process_image(path)
-        reporter.record(result)
-        if result.status == STATUS_ERROR or result.error:
-            LOGGER.error("%s %s: %s", result.status, result.filename, result.error or "")
-        else:
-            LOGGER.info(
-                "%s %s | trailer=%s seal=%s dest=%s",
-                result.status,
-                result.filename,
-                result.trailer,
-                result.seal,
-                result.dest_folder,
-            )
-    return 0
+    return run_batch(config)

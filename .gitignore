@@ -231,3 +231,6 @@ models/rapidocr/*
 photos/*
 !photos/.gitkeep
 ocr_report.csv
+logiscan_gui.json
+.superpowers/
+.worktrees/

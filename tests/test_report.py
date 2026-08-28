@@ -128,7 +128,7 @@ class CliTests(unittest.TestCase):
             search.mkdir()
             (photos / "a.jpg").write_bytes(b"x")
             with patch(
-                "logiscan.cli.OCRProcessor",
+                "logiscan.batch.OCRProcessor",
                 side_effect=DirectMLUnavailableError("DmlExecutionProvider is not available"),
             ):
                 self.assertEqual(
