@@ -234,3 +234,5 @@ ocr_report.csv
 logiscan_gui.json
 .superpowers/
 .worktrees/
+LogiScan.exe
+vendor/tcltk/
