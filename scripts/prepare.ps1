@@ -60,37 +60,63 @@ if (-not $pth) { throw "python*._pth missing in $RuntimeDir" }
     "import site"
 ) | Set-Content -Path $pth.FullName -Encoding ascii
 
-Write-Host "==> Vendoring Tcl/Tk from Python NuGet $PythonVersion"
-$nugetName = "python.$PythonVersion.nupkg"
-$nugetZip = Join-Path $StageDir $nugetName
-Get-RemoteFile -Url "https://www.nuget.org/api/v2/package/python/$PythonVersion" -Destination $nugetZip
-$nugetExtract = Join-Path $StageDir "python-nuget-$PythonVersion"
-if (-not (Test-Path (Join-Path $RuntimeDir "_tkinter.pyd"))) {
-    if (Test-Path $nugetExtract) { Remove-Item -Recurse -Force $nugetExtract }
-    New-Item -ItemType Directory -Force -Path $nugetExtract | Out-Null
-    Expand-Archive -Path $nugetZip -DestinationPath $nugetExtract -Force
-    $tkinterPyd = Get-ChildItem -Path $nugetExtract -Recurse -Filter "_tkinter.pyd" | Select-Object -First 1
-    if (-not $tkinterPyd) { throw "_tkinter.pyd missing from Python NuGet package" }
-    Copy-Item -Force $tkinterPyd.FullName (Join-Path $RuntimeDir "_tkinter.pyd")
+function Expand-Msi {
+    param([string]$MsiPath, [string]$Destination)
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
+        "/a", $MsiPath, "TARGETDIR=$Destination", "/qn", "/norestart"
+    ) -Wait -PassThru
+    if ($p.ExitCode -ne 0) {
+        throw "msiexec /a failed with exit $($p.ExitCode) for $MsiPath (TARGETDIR=$Destination). No admin should be required for a kit-local TARGETDIR."
+    }
+}
+
+Write-Host "==> Vendoring Tcl/Tk from python.org MSI $PythonVersion"
+$tclMsi = Join-Path $StageDir "tcltk.msi"
+$libMsi = Join-Path $StageDir "lib.msi"
+Get-RemoteFile -Url "https://www.python.org/ftp/python/$PythonVersion/amd64/tcltk.msi" -Destination $tclMsi
+Get-RemoteFile -Url "https://www.python.org/ftp/python/$PythonVersion/amd64/lib.msi" -Destination $libMsi
+$tclExtract = Join-Path $StageDir "msi-tcltk"
+$libExtract = Join-Path $StageDir "msi-lib"
+if (-not (Test-Path (Join-Path $Root "vendor\tcltk\_tkinter.pyd"))) {
+    if (Test-Path $tclExtract) { Remove-Item -Recurse -Force $tclExtract }
+    if (Test-Path $libExtract) { Remove-Item -Recurse -Force $libExtract }
+    Expand-Msi -MsiPath $tclMsi -Destination $tclExtract
+    Expand-Msi -MsiPath $libMsi -Destination $libExtract
+    $vendorTk = Join-Path $Root "vendor\tcltk"
+    New-Item -ItemType Directory -Force -Path $vendorTk | Out-Null
+    $tkinterPyd = Get-ChildItem -Path $tclExtract -Recurse -Filter "_tkinter.pyd" | Select-Object -First 1
+    if (-not $tkinterPyd) { throw "_tkinter.pyd missing from tcltk.msi extract at $tclExtract" }
+    Copy-Item -Force $tkinterPyd.FullName (Join-Path $vendorTk "_tkinter.pyd")
     $dllDir = $tkinterPyd.DirectoryName
-    Get-ChildItem -Path $dllDir -Filter "tcl86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $RuntimeDir }
-    Get-ChildItem -Path $dllDir -Filter "tk86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $RuntimeDir }
-    $tcl86 = Get-ChildItem -Path $nugetExtract -Recurse -Directory -Filter "tcl8.6" | Select-Object -First 1
-    if (-not $tcl86) { throw "tcl8.6 missing from Python NuGet package" }
-    $tclDest = Join-Path $RuntimeDir "tcl"
-    if (Test-Path $tclDest) { Remove-Item -Recurse -Force $tclDest }
-    Copy-Item -Recurse -Force $tcl86.Parent.FullName $tclDest
-    $tkinterPkg = Get-ChildItem -Path $nugetExtract -Recurse -Directory -Filter "tkinter" |
+    Get-ChildItem -Path $dllDir -Filter "tcl86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $vendorTk }
+    Get-ChildItem -Path $dllDir -Filter "tk86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $vendorTk }
+    Get-ChildItem -Path $dllDir -Filter "zlib1.dll" | ForEach-Object { Copy-Item -Force $_.FullName $vendorTk }
+    $tcl86 = Get-ChildItem -Path $tclExtract -Recurse -Directory -Filter "tcl8.6" | Select-Object -First 1
+    $tk86 = Get-ChildItem -Path $tclExtract -Recurse -Directory -Filter "tk8.6" | Select-Object -First 1
+    if (-not $tcl86) { throw "tcl8.6 missing from tcltk.msi extract" }
+    if (-not $tk86) { throw "tk8.6 missing from tcltk.msi extract" }
+    $vendorTcl = Join-Path $vendorTk "tcl"
+    New-Item -ItemType Directory -Force -Path $vendorTcl | Out-Null
+    Copy-Item -Recurse -Force $tcl86.FullName (Join-Path $vendorTcl "tcl8.6")
+    Copy-Item -Recurse -Force $tk86.FullName (Join-Path $vendorTcl "tk8.6")
+    $tkinterPkg = Get-ChildItem -Path $tclExtract -Recurse -Directory -Filter "tkinter" |
         Where-Object { Test-Path (Join-Path $_.FullName "__init__.py") } |
         Select-Object -First 1
-    if (-not $tkinterPkg) { throw "tkinter package missing from Python NuGet package" }
-    $siteTk = Join-Path $RuntimeDir "Lib\site-packages\tkinter"
-    New-Item -ItemType Directory -Force -Path (Split-Path $siteTk) | Out-Null
-    if (Test-Path $siteTk) { Remove-Item -Recurse -Force $siteTk }
-    Copy-Item -Recurse -Force $tkinterPkg.FullName $siteTk
+    if (-not $tkinterPkg) { throw "Lib/tkinter missing from tcltk.msi extract at $tclExtract" }
+    $vendorPkg = Join-Path $vendorTk "Lib\site-packages\tkinter"
+    New-Item -ItemType Directory -Force -Path (Split-Path $vendorPkg) | Out-Null
+    if (Test-Path $vendorPkg) { Remove-Item -Recurse -Force $vendorPkg }
+    Copy-Item -Recurse -Force $tkinterPkg.FullName $vendorPkg
 }
 
 $python = Join-Path $RuntimeDir "python.exe"
+$env:PYTHONPATH = $Root
+Write-Host "==> Copying vendor/tcltk into runtime/python"
+& $python -m logiscan.tcltk
+if ($LASTEXITCODE -ne 0) { throw "logiscan.tcltk copy failed; vendor/tcltk is incomplete" }
+Get-ChildItem -Path (Join-Path $Root "vendor\tcltk") -Filter "zlib1.dll" |
+    ForEach-Object { Copy-Item -Force $_.FullName $RuntimeDir }
 $getPip = Join-Path $StageDir "get-pip.py"
 Get-RemoteFile -Url $GetPipUrl -Destination $getPip
 Write-Host "==> Bootstrapping pip"
