@@ -37,7 +37,8 @@ internal static class Program
             {
                 MessageBox.Show(
                     "Tcl/Tk is not in this kit (vendor\\tcltk missing).\n\n" +
-                    "Re-run scripts\\prepare.ps1 on a trusted PC.",
+                    "Re-run scripts\\prepare.ps1 on a trusted PC.\n" +
+                    "If staging failed partway, delete vendor\\tcltk and re-run prepare.ps1.",
                     "LogiScan",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
@@ -129,6 +130,9 @@ internal static class Program
         }
         string tcl = Path.Combine(kit, "runtime", "python", "tcl", "tcl8.6");
         string tk = Path.Combine(kit, "runtime", "python", "tcl", "tk8.6");
+        string logsDir = Path.Combine(kit, "logs");
+        Directory.CreateDirectory(logsDir);
+        string stderrLog = Path.Combine(logsDir, "gui-stderr.log");
         var psi = new ProcessStartInfo
         {
             FileName = pythonw,
@@ -141,26 +145,57 @@ internal static class Program
         psi.EnvironmentVariables["PYTHONPATH"] = kit;
         psi.EnvironmentVariables["TCL_LIBRARY"] = tcl;
         psi.EnvironmentVariables["TK_LIBRARY"] = tk;
-        using (var proc = Process.Start(psi))
+        var proc = Process.Start(psi);
+        if (proc == null)
         {
-            if (proc == null)
+            return 1;
+        }
+        var drain = System.Threading.Tasks.Task.Run(() =>
+        {
+            using (var src = proc.StandardError.BaseStream)
+            using (var dst = new FileStream(stderrLog, FileMode.Create, FileAccess.Write, FileShare.Read))
             {
-                return 1;
+                src.CopyTo(dst);
             }
-            if (proc.WaitForExit(2000))
+        });
+        if (proc.WaitForExit(2000))
+        {
+            try
             {
-                string err = proc.StandardError.ReadToEnd();
-                if (proc.ExitCode != 0)
-                {
-                    MessageBox.Show(
-                        string.IsNullOrWhiteSpace(err) ? ("GUI exited " + proc.ExitCode) : err,
-                        "LogiScan",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
-                    return proc.ExitCode;
-                }
+                drain.Wait(5000);
+            }
+            catch
+            {
+            }
+            if (proc.ExitCode != 0)
+            {
+                string err = ReadFileTail(stderrLog, 4096);
+                MessageBox.Show(
+                    string.IsNullOrWhiteSpace(err) ? ("GUI exited " + proc.ExitCode) : err,
+                    "LogiScan",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return proc.ExitCode;
             }
         }
         return 0;
+    }
+
+    static string ReadFileTail(string path, int maxBytes)
+    {
+        if (!File.Exists(path))
+        {
+            return "";
+        }
+        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            long len = fs.Length;
+            long start = len > maxBytes ? len - maxBytes : 0;
+            fs.Seek(start, SeekOrigin.Begin);
+            using (var reader = new StreamReader(fs))
+            {
+                return reader.ReadToEnd().Trim();
+            }
+        }
     }
 }

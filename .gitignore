@@ -236,3 +236,4 @@ logiscan_gui.json
 .worktrees/
 LogiScan.exe
 vendor/tcltk/
+logs/

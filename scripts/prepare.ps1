@@ -60,6 +60,20 @@ if (-not $pth) { throw "python*._pth missing in $RuntimeDir" }
     "import site"
 ) | Set-Content -Path $pth.FullName -Encoding ascii
 
+Write-Host "==> Compiling LogiScan.exe"
+$csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if (-not (Test-Path $csc)) {
+    $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
+}
+if (-not (Test-Path $csc)) {
+    throw "csc.exe not found under Microsoft.NET\Framework64 or Framework v4.0.30319"
+}
+$launcherSrc = Join-Path $Root "scripts\LogiScanLauncher\Program.cs"
+$exe = Join-Path $Root "LogiScan.exe"
+& $csc /nologo /target:winexe /r:System.Windows.Forms.dll /r:System.dll /out:$exe $launcherSrc
+if ($LASTEXITCODE -ne 0) { throw "LogiScan.exe compile failed" }
+if (-not (Test-Path $exe)) { throw "LogiScan.exe was not written to $exe" }
+
 function Expand-Msi {
     param([string]$MsiPath, [string]$Destination)
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
@@ -78,7 +92,7 @@ Get-RemoteFile -Url "https://www.python.org/ftp/python/$PythonVersion/amd64/tclt
 Get-RemoteFile -Url "https://www.python.org/ftp/python/$PythonVersion/amd64/lib.msi" -Destination $libMsi
 $tclExtract = Join-Path $StageDir "msi-tcltk"
 $libExtract = Join-Path $StageDir "msi-lib"
-if (-not (Test-Path (Join-Path $Root "vendor\tcltk\_tkinter.pyd"))) {
+if (-not (Test-Path (Join-Path $Root "vendor\tcltk\.staged"))) {
     if (Test-Path $tclExtract) { Remove-Item -Recurse -Force $tclExtract }
     if (Test-Path $libExtract) { Remove-Item -Recurse -Force $libExtract }
     Expand-Msi -MsiPath $tclMsi -Destination $tclExtract
@@ -91,15 +105,21 @@ if (-not (Test-Path (Join-Path $Root "vendor\tcltk\_tkinter.pyd"))) {
     $dllDir = $tkinterPyd.DirectoryName
     Get-ChildItem -Path $dllDir -Filter "tcl86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $vendorTk }
     Get-ChildItem -Path $dllDir -Filter "tk86*.dll" | ForEach-Object { Copy-Item -Force $_.FullName $vendorTk }
-    Get-ChildItem -Path $dllDir -Filter "zlib1.dll" | ForEach-Object { Copy-Item -Force $_.FullName $vendorTk }
+    $zlibDll = Get-ChildItem -Path $dllDir -Filter "zlib1.dll" | Select-Object -First 1
+    if (-not $zlibDll) { throw "zlib1.dll missing from tcltk.msi extract next to _tkinter.pyd at $dllDir" }
+    Copy-Item -Force $zlibDll.FullName $vendorTk
     $tcl86 = Get-ChildItem -Path $tclExtract -Recurse -Directory -Filter "tcl8.6" | Select-Object -First 1
     $tk86 = Get-ChildItem -Path $tclExtract -Recurse -Directory -Filter "tk8.6" | Select-Object -First 1
     if (-not $tcl86) { throw "tcl8.6 missing from tcltk.msi extract" }
     if (-not $tk86) { throw "tk8.6 missing from tcltk.msi extract" }
     $vendorTcl = Join-Path $vendorTk "tcl"
     New-Item -ItemType Directory -Force -Path $vendorTcl | Out-Null
-    Copy-Item -Recurse -Force $tcl86.FullName (Join-Path $vendorTcl "tcl8.6")
-    Copy-Item -Recurse -Force $tk86.FullName (Join-Path $vendorTcl "tk8.6")
+    $destTcl86 = Join-Path $vendorTcl "tcl8.6"
+    $destTk86 = Join-Path $vendorTcl "tk8.6"
+    if (Test-Path $destTcl86) { Remove-Item -Recurse -Force $destTcl86 }
+    if (Test-Path $destTk86) { Remove-Item -Recurse -Force $destTk86 }
+    Copy-Item -Recurse -Force $tcl86.FullName $destTcl86
+    Copy-Item -Recurse -Force $tk86.FullName $destTk86
     $tkinterPkg = Get-ChildItem -Path $tclExtract -Recurse -Directory -Filter "tkinter" |
         Where-Object { Test-Path (Join-Path $_.FullName "__init__.py") } |
         Select-Object -First 1
@@ -108,6 +128,7 @@ if (-not (Test-Path (Join-Path $Root "vendor\tcltk\_tkinter.pyd"))) {
     New-Item -ItemType Directory -Force -Path (Split-Path $vendorPkg) | Out-Null
     if (Test-Path $vendorPkg) { Remove-Item -Recurse -Force $vendorPkg }
     Copy-Item -Recurse -Force $tkinterPkg.FullName $vendorPkg
+    "" | Set-Content -Path (Join-Path $vendorTk ".staged") -Encoding ascii
 }
 
 $python = Join-Path $RuntimeDir "python.exe"
@@ -115,6 +136,8 @@ $env:PYTHONPATH = $Root
 Write-Host "==> Copying vendor/tcltk into runtime/python"
 & $python -m logiscan.tcltk
 if ($LASTEXITCODE -ne 0) { throw "logiscan.tcltk copy failed; vendor/tcltk is incomplete" }
+& $python -c "import tkinter; print(tkinter.Tcl().eval('info patchlevel'))"
+if ($LASTEXITCODE -ne 0) { throw "Tcl/Tk did not initialize after copy (check zlib1.dll and tcl8.6 trees)" }
 $getPip = Join-Path $StageDir "get-pip.py"
 Get-RemoteFile -Url $GetPipUrl -Destination $getPip
 Write-Host "==> Bootstrapping pip"
@@ -149,20 +172,6 @@ _loaded_models(engine)
 print('Models ready in', model_dir)
 "@
 if ($LASTEXITCODE -ne 0) { throw "RapidOCR model prefetch failed" }
-
-Write-Host "==> Compiling LogiScan.exe"
-$csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-if (-not (Test-Path $csc)) {
-    $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
-}
-if (-not (Test-Path $csc)) {
-    throw "csc.exe not found under Microsoft.NET\Framework64 or Framework v4.0.30319"
-}
-$launcherSrc = Join-Path $Root "scripts\LogiScanLauncher\Program.cs"
-$exe = Join-Path $Root "LogiScan.exe"
-& $csc /nologo /target:winexe /r:System.Windows.Forms.dll /r:System.dll /out:$exe $launcherSrc
-if ($LASTEXITCODE -ne 0) { throw "LogiScan.exe compile failed" }
-if (-not (Test-Path $exe)) { throw "LogiScan.exe was not written to $exe" }
 
 Write-Host ""
 Write-Host "Prepare complete. Copy this folder to a USB stick, then on the corporate laptop run:"
