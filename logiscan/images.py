@@ -1,14 +1,18 @@
-"""Image loading and Pass 2 contrast enhancement."""
+"""Image listing, loading, HEIC/PNG conversion, and Pass 2 enhancement."""
 
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from logiscan.config import Config
+from logiscan.config import JPEG_QUALITY, PROCESSED_DIR_NAME, Config
 
 LOGGER = logging.getLogger("logiscan")
+CONVERT_SUFFIXES = {".heic", ".heif", ".png"}
+JPEG_SUFFIXES = {".jpg", ".jpeg"}
 
 
 def load_image(path: Path) -> Any:
@@ -27,8 +31,40 @@ def list_images(photos_dir: Path, suffixes: tuple[str, ...]) -> list[Path]:
     return sorted(
         path
         for path in photos_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in wanted
+        if path.is_file()
+        and path.suffix.lower() in wanted
+        and path.name != PROCESSED_DIR_NAME
     )
+
+
+def prepare_working_image(path: Path) -> tuple[Path, Path | None]:
+    suffix = path.suffix.lower()
+    if suffix in JPEG_SUFFIXES:
+        return path, None
+    if suffix not in CONVERT_SUFFIXES:
+        raise ValueError(f"Unsupported image type: {path.name}")
+    return _convert_to_temp_jpeg(path)
+
+
+def _convert_to_temp_jpeg(path: Path) -> tuple[Path, Path]:
+    from PIL import Image
+
+    suffix = path.suffix.lower()
+    if suffix in {".heic", ".heif"}:
+        import pillow_heif
+
+        pillow_heif.register_heif_opener()
+    image = Image.open(path)
+    rgb = image.convert("RGB")
+    handle, raw_name = tempfile.mkstemp(suffix=".jpg")
+    os.close(handle)
+    dest = Path(raw_name)
+    try:
+        rgb.save(dest, format="JPEG", quality=JPEG_QUALITY)
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    return dest, dest
 
 
 def enhance_pass2(image: Any, config: Config, *, use_opencl: bool) -> Any:

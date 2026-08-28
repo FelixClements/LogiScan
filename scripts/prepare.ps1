@@ -67,8 +67,8 @@ Write-Host "==> Bootstrapping pip"
 & $python $getPip --no-warn-script-location
 if ($LASTEXITCODE -ne 0) { throw "get-pip failed" }
 
-Write-Host "==> Downloading RapidOCR, OpenCV, numpy"
-& $python -m pip download rapidocr opencv-python numpy -d $WheelsDir
+Write-Host "==> Downloading RapidOCR, OpenCV, numpy, pillow-heif"
+& $python -m pip download rapidocr opencv-python numpy pillow-heif -d $WheelsDir
 if ($LASTEXITCODE -ne 0) { throw "dependency download failed" }
 
 Write-Host "==> Downloading onnxruntime-directml (must replace CPU onnxruntime)"
@@ -76,7 +76,7 @@ Write-Host "==> Downloading onnxruntime-directml (must replace CPU onnxruntime)"
 if ($LASTEXITCODE -ne 0) { throw "onnxruntime-directml download failed" }
 
 Write-Host "==> Installing into embed Python so RapidOCR models can be prefetched"
-& $python -m pip install --no-index --find-links $WheelsDir rapidocr opencv-python numpy
+& $python -m pip install --no-index --find-links $WheelsDir rapidocr opencv-python numpy pillow-heif
 if ($LASTEXITCODE -ne 0) { throw "prepare-time RapidOCR install failed" }
 & $python -m pip uninstall -y onnxruntime
 & $python -m pip install --no-index --find-links $WheelsDir onnxruntime-directml

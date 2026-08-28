@@ -12,8 +12,8 @@ if not exist "%PY%" (
   exit /b 1
 )
 
-echo Installing RapidOCR and OpenCV from "%WHEELS%"...
-"%PY%" -m pip install --no-index --find-links "%WHEELS%" rapidocr opencv-python numpy
+echo Installing RapidOCR, OpenCV, and pillow-heif from "%WHEELS%"...
+"%PY%" -m pip install --no-index --find-links "%WHEELS%" rapidocr opencv-python numpy pillow-heif
 if errorlevel 1 (
   echo Install failed.
   exit /b 1

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import logging
 
-from logiscan.config import CSV_FIELDS, STATUS_SUCCESS, Config, ScanResult
+from logiscan.config import CSV_FIELDS, STATUS_MOVED, Config, ScanResult
 
 LOGGER = logging.getLogger("logiscan")
 
@@ -25,11 +25,10 @@ class ReportManager:
             csv.DictWriter(handle, fieldnames=CSV_FIELDS).writeheader()
 
     def record(self, result: ScanResult) -> None:
-        if result.status == STATUS_SUCCESS:
+        if result.status == STATUS_MOVED:
             line = (
-                f"[{result.timestamp}] SUCCESS: {result.filename} | "
-                f"Found MRSU Marker and {result.tracking_match_count} "
-                "instances of 73868 variants."
+                f"[{result.timestamp}] MOVED: {result.filename} | "
+                f"trailer={result.trailer} seal={result.seal} dest={result.dest_folder}"
             )
             with self._config.log_path.open("a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
@@ -43,8 +42,9 @@ class ReportManager:
                 {
                     "Timestamp": result.timestamp,
                     "Filename": result.filename,
-                    "MRSU_Match": result.mrsu_match,
-                    "Tracking_Match_Count": result.tracking_match_count,
+                    "Trailer": result.trailer or "",
+                    "Seal": result.seal or "",
+                    "DestFolder": result.dest_folder or "",
                     "Status": result.status,
                 }
             )

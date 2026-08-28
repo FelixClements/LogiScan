@@ -39,6 +39,22 @@ class DirectMLGuardTests(unittest.TestCase):
             require_session_on_dml(["CPUExecutionProvider"], label="Detector")
         require_session_on_dml([DML_PROVIDER, "CPUExecutionProvider"], label="Detector")
 
+    def test_missing_onnxruntime_is_directml_error(self) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def guarded(name: str, *args: object, **kwargs: object):
+            if name == "onnxruntime" or name.startswith("onnxruntime."):
+                raise ImportError("simulated missing onnxruntime")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=guarded):
+            from logiscan.hardware import ort_providers
+
+            with self.assertRaises(DirectMLUnavailableError):
+                ort_providers()
+
     def test_engine_init_hard_fails_before_rapidocr(self) -> None:
         with patch(
             "logiscan.ocr.require_directml",

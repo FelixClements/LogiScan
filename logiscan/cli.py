@@ -1,4 +1,4 @@
-"""CLI for the USB-portable LogiScan OCR batch scanner."""
+"""CLI for the USB-portable LogiScan trailer photo filer."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 from logiscan.config import STATUS_ERROR, Config
 from logiscan.hardware import DirectMLUnavailableError, probe_hardware
 from logiscan.images import list_images
+from logiscan.index import build_index
 from logiscan.processor import OCRProcessor
 from logiscan.report import ReportManager
 
@@ -17,9 +18,10 @@ LOGGER = logging.getLogger("logiscan")
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Batch-OCR A4 delivery photos for MRSU and tracking markers."
+        description="Convert HEIC, OCR trailer and seal, and file photos into PO folders."
     )
     parser.add_argument("--input-dir", type=Path, default=Path("photos"))
+    parser.add_argument("--search-root", type=Path, default=None)
     parser.add_argument("--log-file", type=Path, default=Path("ocr_matches.log"))
     parser.add_argument("--report-file", type=Path, default=Path("ocr_report.csv"))
     parser.add_argument(
@@ -38,32 +40,48 @@ def configure_logging() -> None:
     )
 
 
+def _require_dir(path: Path, label: str) -> str | None:
+    if not path.exists():
+        return f"{label} does not exist: {path}"
+    if not path.is_dir():
+        return f"{label} is not a directory: {path}"
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_logging()
     if args.check_hardware:
         return probe_hardware()
 
+    if args.search_root is None:
+        LOGGER.error("--search-root is required")
+        return 1
+
     config = Config(
         photos_dir=args.input_dir,
+        search_root=args.search_root,
         log_path=args.log_file,
         report_path=args.report_file,
     ).resolved()
 
-    if not config.photos_dir.exists():
-        LOGGER.error("Input directory does not exist: %s", config.photos_dir)
-        return 1
-    if not config.photos_dir.is_dir():
-        LOGGER.error("Input path is not a directory: %s", config.photos_dir)
-        return 1
+    for path, label in (
+        (config.photos_dir, "Input directory"),
+        (config.search_root, "Search root"),
+    ):
+        error = _require_dir(path, label)
+        if error:
+            LOGGER.error("%s", error)
+            return 1
 
     images = list_images(config.photos_dir, config.image_suffixes)
     if not images:
-        LOGGER.warning("No .jpg/.jpeg/.png files in %s", config.photos_dir)
+        LOGGER.warning("No image files in %s", config.photos_dir)
         return 0
 
+    index = build_index(config.search_root)
     try:
-        processor = OCRProcessor(config)
+        processor = OCRProcessor(config, index)
     except DirectMLUnavailableError:
         LOGGER.exception("DirectML iGPU is required; refusing CPU OCR.")
         return 2
@@ -76,14 +94,15 @@ def main(argv: list[str] | None = None) -> int:
     for path in images:
         result = processor.process_image(path)
         reporter.record(result)
-        if result.status == STATUS_ERROR:
-            LOGGER.error("ERROR %s: %s", result.filename, result.error)
+        if result.status == STATUS_ERROR or result.error:
+            LOGGER.error("%s %s: %s", result.status, result.filename, result.error or "")
         else:
             LOGGER.info(
-                "%s %s | MRSU=%s tracking=%s",
+                "%s %s | trailer=%s seal=%s dest=%s",
                 result.status,
                 result.filename,
-                result.mrsu_match,
-                result.tracking_match_count,
+                result.trailer,
+                result.seal,
+                result.dest_folder,
             )
     return 0

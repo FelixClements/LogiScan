@@ -16,8 +16,13 @@ class DirectMLUnavailableError(RuntimeError):
 
 
 def ort_providers() -> list[str]:
-    import onnxruntime as ort
-
+    try:
+        import onnxruntime as ort
+    except ImportError as exc:
+        raise DirectMLUnavailableError(
+            "onnxruntime is not installed. Install onnxruntime-directml "
+            "(not CPU onnxruntime) and rerun."
+        ) from exc
     return list(ort.get_available_providers())
 
 
