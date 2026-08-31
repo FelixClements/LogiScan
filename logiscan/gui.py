@@ -7,7 +7,8 @@ import threading
 from pathlib import Path
 
 from logiscan.batch import BatchCallbacks, require_dir, run_batch
-from logiscan.config import APP_ROOT, STATUS_ERROR, Config
+from logiscan.config import APP_ROOT, STATUS_ERROR, Config, ScanResult
+from logiscan.gui_copy import inspect_footer, is_leftover, run_summary, status_label
 from logiscan.gui_prefs import GuiPrefs, load_prefs, save_prefs
 from logiscan.images import list_images
 from logiscan.preview import thumbnail_png
@@ -41,7 +42,10 @@ if tk is not None:
             self._stop = threading.Event()
             self._worker: threading.Thread | None = None
             self._closing = False
+            self._running = False
             self._photo_image: tk.PhotoImage | None = None
+            self._photos_dir: Path | None = None
+            self._results: dict[str, ScanResult] = {}
             prefs = load_prefs(APP_ROOT)
             self._build(prefs)
             self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -84,6 +88,7 @@ if tk is not None:
             self.preview.pack(side="left", fill="y", padx=8, pady=4)
             columns = ("filename", "trailer", "seal", "status")
             self.tree = ttk.Treeview(body, columns=columns, show="headings")
+            widths = {"filename": 220, "trailer": 140, "seal": 140, "status": 200}
             for key, heading in (
                 ("filename", "Filename"),
                 ("trailer", "Trailer"),
@@ -91,7 +96,9 @@ if tk is not None:
                 ("status", "Status"),
             ):
                 self.tree.heading(key, text=heading)
-                self.tree.column(key, width=140 if key != "filename" else 220)
+                self.tree.column(key, width=widths[key])
+            self.tree.tag_configure("leftover", foreground="#8a1c1c")
+            self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
             scroll = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview)
             self.tree.configure(yscrollcommand=scroll.set)
             self.tree.pack(side="left", fill="both", expand=True, pady=4)
@@ -111,6 +118,7 @@ if tk is not None:
                 self.search_var.set(chosen)
 
         def _set_running(self, running: bool) -> None:
+            self._running = running
             state_run = "disabled" if running else "normal"
             state_cancel = "normal" if running else "disabled"
             state_fields = "disabled" if running else "normal"
@@ -138,6 +146,8 @@ if tk is not None:
                 messagebox.showinfo("LogiScan", f"No image files in {config.photos_dir}")
                 return
             save_prefs(APP_ROOT, GuiPrefs(photos_dir=photos, search_root=search))
+            self._photos_dir = config.photos_dir
+            self._results = {}
             for item in self.tree.get_children():
                 self.tree.delete(item)
             for path in images:
@@ -203,18 +213,75 @@ if tk is not None:
             self.progress["value"] = index
             self.count_var.set(f"{index} / {total}")
             iid = result.filename
+            self._results[iid] = result
             if iid in self.tree.get_children():
+                tags = ("leftover",) if is_leftover(result.status) else ()
                 self.tree.item(
                     iid,
                     values=(
                         result.filename,
                         result.trailer or "",
                         result.seal or "",
-                        result.status,
+                        status_label(result.status),
                     ),
+                    tags=tags,
                 )
             if result.status == STATUS_ERROR and result.error:
                 self.footer_var.set(result.error)
+
+        def _on_tree_select(self, _event: object = None) -> None:
+            if self._running:
+                return
+            selected = self.tree.selection()
+            if not selected:
+                return
+            self._inspect_iid(selected[0])
+
+        def _inspect_iid(self, iid: str) -> None:
+            result = self._results.get(iid)
+            status = result.status if result is not None else ""
+            error = result.error if result is not None else None
+            self.footer_var.set(inspect_footer(iid, status, error))
+            if not is_leftover(status) or self._photos_dir is None:
+                return
+            self._show_preview(self._photos_dir / iid, failed_footer=False)
+
+        def _show_preview(self, path: Path, *, failed_footer: bool) -> None:
+            try:
+                png = thumbnail_png(path)
+            except ValueError:
+                self._photo_image = None
+                self.preview.configure(image="", text=path.name, bg="#222222")
+                if failed_footer:
+                    self.footer_var.set(f"Preview failed: {path.name}")
+                return
+            self._photo_image = tk.PhotoImage(data=base64.standard_b64encode(png))
+            self.preview.configure(image=self._photo_image, text="")
+
+        def _enter_inspect(self) -> None:
+            for iid in self.tree.get_children():
+                if iid in self._results:
+                    continue
+                self.tree.item(iid, tags=("leftover",))
+                self.tree.set(iid, "status", status_label(""))
+            moved = 0
+            leftover = 0
+            first: str | None = None
+            for iid in self.tree.get_children():
+                result = self._results.get(iid)
+                status = result.status if result is not None else ""
+                if is_leftover(status):
+                    leftover += 1
+                    if first is None:
+                        first = iid
+                else:
+                    moved += 1
+            self.footer_var.set(run_summary(moved, leftover))
+            if first is None:
+                return
+            self.tree.selection_set(first)
+            self.tree.see(first)
+            self._inspect_iid(first)
 
         def _batch_finished(self, code: int) -> None:
             self._set_running(False)
@@ -225,6 +292,9 @@ if tk is not None:
                 )
             if self._closing:
                 self.destroy()
+                return
+            if code != 2:
+                self._enter_inspect()
 
         def _on_cancel(self) -> None:
             self._stop.set()

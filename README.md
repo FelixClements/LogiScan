@@ -97,7 +97,7 @@ System Python on PATH is not the USB kit. GUI and OCR must run through `runtime\
 No pytest. No GPU required for this set:
 
 ```bat
-python -m unittest tests.test_tcltk_copy tests.test_gui_prefs tests.test_batch tests.test_preview tests.test_report.CliTests tests.test_extract tests.test_hardware tests.test_images tests.test_index tests.test_iso tests.test_move -v
+python -m unittest tests.test_tcltk_copy tests.test_gui_prefs tests.test_gui_copy tests.test_batch tests.test_preview tests.test_report.CliTests tests.test_extract tests.test_hardware tests.test_images tests.test_index tests.test_iso tests.test_move -v
 ```
 
 `tests.test_gpu` needs DirectML and the kit packages. Skip it on machines without `onnxruntime-directml`.
