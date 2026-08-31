@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PIL import Image
 
-from logiscan.preview import thumbnail_png
+from logiscan.preview import pane_max_size, pane_resized, thumbnail_png
 
 
 class ThumbnailPngTests(unittest.TestCase):
@@ -41,6 +41,30 @@ class ThumbnailPngTests(unittest.TestCase):
             path.write_bytes(b"not-an-image")
             with self.assertRaises(ValueError):
                 thumbnail_png(path)
+
+
+    def test_jpeg_fits_larger_max_size(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "wide.jpg"
+            Image.new("RGB", (800, 200), color=(10, 20, 30)).save(path, "JPEG")
+            out = Image.open(io.BytesIO(thumbnail_png(path, max_size=480)))
+            self.assertEqual(out.size, (480, 120))
+
+
+class PaneMaxSizeTests(unittest.TestCase):
+    def test_shorter_edge(self) -> None:
+        self.assertEqual(pane_max_size(400, 300), 300)
+        self.assertEqual(pane_max_size(200, 500), 200)
+
+    def test_unmapped_falls_back_to_280(self) -> None:
+        self.assertEqual(pane_max_size(1, 400), 280)
+        self.assertEqual(pane_max_size(400, 1), 280)
+        self.assertEqual(pane_max_size(0, 0), 280)
+
+    def test_resize_ignores_small_jitter(self) -> None:
+        self.assertFalse(pane_resized((300, 280), (304, 282)))
+        self.assertTrue(pane_resized((300, 280), (320, 280)))
+        self.assertTrue(pane_resized((300, 280), (300, 300)))
 
 
 if __name__ == "__main__":

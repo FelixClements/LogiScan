@@ -60,7 +60,7 @@ If the window never appears, read `logs\gui-stderr.log` next to the EXE.
 ## Operator window
 
 1. Photos folder (defaults to the kit `photos` directory)
-2. PO search root (you must pick this)
+2. Destination (you must pick this)
 3. Run
 
 You get a thumbnail, N-of-M progress, and a row per photo (filename, trailer, seal, status). Cancel finishes the current photo, then stops.

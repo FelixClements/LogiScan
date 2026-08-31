@@ -11,7 +11,7 @@ from logiscan.config import APP_ROOT, STATUS_ERROR, Config, ScanResult
 from logiscan.gui_copy import inspect_footer, is_leftover, run_summary, status_label
 from logiscan.gui_prefs import GuiPrefs, load_prefs, save_prefs
 from logiscan.images import list_images
-from logiscan.preview import thumbnail_png
+from logiscan.preview import DEFAULT_PREVIEW_MAX, pane_max_size, pane_resized, thumbnail_png
 
 try:
     import tkinter as tk
@@ -46,6 +46,9 @@ if tk is not None:
             self._photo_image: tk.PhotoImage | None = None
             self._photos_dir: Path | None = None
             self._results: dict[str, ScanResult] = {}
+            self._preview_max = DEFAULT_PREVIEW_MAX
+            self._preview_path: Path | None = None
+            self._preview_box = (0, 0)
             prefs = load_prefs(APP_ROOT)
             self._build(prefs)
             self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -55,13 +58,13 @@ if tk is not None:
             pad = {"padx": 8, "pady": 4}
             top = ttk.Frame(self)
             top.pack(fill="x")
-            ttk.Label(top, text="Photos", width=10).grid(row=0, column=0, sticky="w", **pad)
+            ttk.Label(top, text="Photos", width=12).grid(row=0, column=0, sticky="w", **pad)
             self.photos_var = tk.StringVar(value=str(prefs.photos_dir))
             self.photos_entry = ttk.Entry(top, textvariable=self.photos_var)
             self.photos_entry.grid(row=0, column=1, sticky="ew", **pad)
             self.photos_browse = ttk.Button(top, text="Browse", command=self._browse_photos)
             self.photos_browse.grid(row=0, column=2, **pad)
-            ttk.Label(top, text="PO root", width=10).grid(row=1, column=0, sticky="w", **pad)
+            ttk.Label(top, text="Destination", width=12).grid(row=1, column=0, sticky="w", **pad)
             self.search_var = tk.StringVar(
                 value="" if prefs.search_root is None else str(prefs.search_root)
             )
@@ -83,11 +86,19 @@ if tk is not None:
             self.progress.pack(side="left", fill="x", expand=True, **pad)
 
             body = ttk.Frame(self)
-            body.pack(fill="both", expand=True)
-            self.preview = tk.Label(body, width=40, height=18, bg="#222222", fg="#aaaaaa", text="")
-            self.preview.pack(side="left", fill="y", padx=8, pady=4)
+            body.pack(fill="both", expand=True, padx=8, pady=4)
+            body.columnconfigure(0, weight=3, minsize=270)
+            body.columnconfigure(1, weight=7)
+            body.rowconfigure(0, weight=1)
+            self.preview_frame = tk.Frame(body, bg="#222222", width=270, height=270)
+            self.preview_frame.grid(row=0, column=0, sticky="nsew")
+            self.preview = tk.Label(self.preview_frame, bg="#222222", fg="#aaaaaa", text="")
+            self.preview.place(relx=0.5, rely=0.5, anchor="center")
+            self.preview_frame.bind("<Configure>", self._on_preview_configure)
+            table = ttk.Frame(body)
+            table.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
             columns = ("filename", "trailer", "seal", "status")
-            self.tree = ttk.Treeview(body, columns=columns, show="headings")
+            self.tree = ttk.Treeview(table, columns=columns, show="headings")
             widths = {"filename": 220, "trailer": 140, "seal": 140, "status": 200}
             for key, heading in (
                 ("filename", "Filename"),
@@ -99,9 +110,9 @@ if tk is not None:
                 self.tree.column(key, width=widths[key])
             self.tree.tag_configure("leftover", foreground="#8a1c1c")
             self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
-            scroll = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview)
+            scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
             self.tree.configure(yscrollcommand=scroll.set)
-            self.tree.pack(side="left", fill="both", expand=True, pady=4)
+            self.tree.pack(side="left", fill="both", expand=True)
             scroll.pack(side="left", fill="y")
 
             self.footer_var = tk.StringVar(value="")
@@ -113,7 +124,7 @@ if tk is not None:
                 self.photos_var.set(chosen)
 
         def _browse_search(self) -> None:
-            chosen = filedialog.askdirectory(title="PO root")
+            chosen = filedialog.askdirectory(title="Destination")
             if chosen:
                 self.search_var.set(chosen)
 
@@ -133,9 +144,9 @@ if tk is not None:
             photos = Path(self.photos_var.get().strip())
             search = Path(self.search_var.get().strip())
             if not self.search_var.get().strip():
-                messagebox.showerror("LogiScan", "PO root is required")
+                messagebox.showerror("LogiScan", "Destination is required")
                 return
-            for path, label in ((photos, "Input directory"), (search, "Search root")):
+            for path, label in ((photos, "Input directory"), (search, "Destination")):
                 error = require_dir(path, label)
                 if error:
                     messagebox.showerror("LogiScan", error)
@@ -168,7 +179,7 @@ if tk is not None:
             def on_begin(index: int, total: int, path: Path) -> None:
                 png: bytes | None
                 try:
-                    png = thumbnail_png(path)
+                    png = thumbnail_png(path, max_size=self._preview_max)
                 except ValueError:
                     png = None
                 self.after(
@@ -201,13 +212,12 @@ if tk is not None:
             if path.name in self.tree.get_children():
                 self.tree.set(path.name, "status", "…")
                 self.tree.see(path.name)
+            self._preview_path = path
             if png is None:
-                self._photo_image = None
-                self.preview.configure(image="", text=path.name, bg="#222222")
+                self._set_preview_image(None, placeholder=path.name)
                 self.footer_var.set(f"Preview failed: {path.name}")
                 return
-            self._photo_image = tk.PhotoImage(data=base64.standard_b64encode(png))
-            self.preview.configure(image=self._photo_image, text="")
+            self._set_preview_image(png, placeholder=path.name)
 
         def _photo_done_ui(self, index: int, total: int, result) -> None:
             self.progress["value"] = index
@@ -246,17 +256,37 @@ if tk is not None:
                 return
             self._show_preview(self._photos_dir / iid, failed_footer=False)
 
-        def _show_preview(self, path: Path, *, failed_footer: bool) -> None:
-            try:
-                png = thumbnail_png(path)
-            except ValueError:
+        def _set_preview_image(self, png: bytes | None, *, placeholder: str) -> None:
+            if png is None:
                 self._photo_image = None
-                self.preview.configure(image="", text=path.name, bg="#222222")
+                self.preview.configure(image="", text=placeholder, width=0, height=0)
+                return
+            self._photo_image = tk.PhotoImage(data=base64.standard_b64encode(png))
+            self.preview.configure(image=self._photo_image, text="", width=0, height=0)
+
+        def _on_preview_configure(self, event: object) -> None:
+            widget = getattr(event, "widget", None)
+            if widget is not self.preview_frame:
+                return
+            new = (int(getattr(event, "width", 0)), int(getattr(event, "height", 0)))
+            if self._preview_box != (0, 0) and not pane_resized(self._preview_box, new):
+                return
+            self._preview_box = new
+            self._preview_max = pane_max_size(new[0], new[1])
+            if self._preview_path is None:
+                return
+            self._show_preview(self._preview_path, failed_footer=False)
+
+        def _show_preview(self, path: Path, *, failed_footer: bool) -> None:
+            self._preview_path = path
+            try:
+                png = thumbnail_png(path, max_size=self._preview_max)
+            except ValueError:
+                self._set_preview_image(None, placeholder=path.name)
                 if failed_footer:
                     self.footer_var.set(f"Preview failed: {path.name}")
                 return
-            self._photo_image = tk.PhotoImage(data=base64.standard_b64encode(png))
-            self.preview.configure(image=self._photo_image, text="")
+            self._set_preview_image(png, placeholder=path.name)
 
         def _enter_inspect(self) -> None:
             for iid in self.tree.get_children():
