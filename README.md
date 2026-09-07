@@ -75,7 +75,7 @@ JPEG destination:
 <PO folder>\TRAILER_SEAL.jpg
 ```
 
-HEIC/HEIF/PNG originals are moved to `photos\_processed` after a successful JPEG move. Existing destination files are not overwritten. Ambiguous trailer, missing seal, or no unique PO folder leaves the original in place.
+HEIC/HEIF/PNG originals are moved to `photos\_processed` after a successful JPEG copy. Existing destination files are not overwritten. If the truck code matches several PO folders, the JPEG is copied into each of them. Ambiguous trailer, missing seal, no PO folder, or an already-filed destination leaves the original in place.
 
 Each run appends `ocr_report.csv`. Moves also append `ocr_matches.log`.
 
