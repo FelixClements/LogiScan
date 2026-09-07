@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from logiscan.config import (
+    DEST_FOLDER_SEP,
     STATUS_AMBIGUOUS_FOLDER,
     STATUS_AMBIGUOUS_SEAL,
     STATUS_AMBIGUOUS_TRAILER,
@@ -46,13 +47,26 @@ def status_label(status: str) -> str:
     return _STATUS_LABELS.get(status, status)
 
 
-def leftover_reason(status: str, error: str | None = None) -> str:
+def leftover_reason(
+    status: str,
+    error: str | None = None,
+    dest_folder: str | None = None,
+) -> str:
     if status == STATUS_ERROR:
         if error:
             return error
         return "Processing failed."
     if not status:
         return "This photo was not processed."
+    if (
+        status == STATUS_DEST_EXISTS
+        and dest_folder
+        and DEST_FOLDER_SEP in dest_folder
+    ):
+        return (
+            "This truck code matches more than one PO folder, and a photo "
+            "for this truck and seal is already in at least one of them."
+        )
     return _LEFTOVER_REASONS.get(status, status)
 
 
@@ -66,7 +80,15 @@ def run_summary(moved: int, leftover: int) -> str:
     return f"{moved} moved."
 
 
-def inspect_footer(filename: str, status: str, error: str | None = None) -> str:
+def inspect_footer(
+    filename: str,
+    status: str,
+    error: str | None = None,
+    dest_folder: str | None = None,
+) -> str:
     if not is_leftover(status):
         return f"{filename} was moved."
-    return f"{filename} is still in the photos folder. {leftover_reason(status, error)}"
+    return (
+        f"{filename} is still in the photos folder. "
+        f"{leftover_reason(status, error, dest_folder=dest_folder)}"
+    )
