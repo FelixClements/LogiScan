@@ -7,6 +7,7 @@ from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CSV_FIELDS = ("Timestamp", "Filename", "Trailer", "Seal", "DestFolder", "Status")
+DEST_FOLDER_SEP = "; "
 STATUS_MOVED = "MOVED"
 STATUS_CONVERT_ERROR = "CONVERT_ERROR"
 STATUS_ERROR = "ERROR"
