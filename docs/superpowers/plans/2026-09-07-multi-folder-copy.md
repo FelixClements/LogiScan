@@ -276,7 +276,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add logiscan/config.py logiscan/gui_copy.py logiscan/gui.py tests.test_gui_copy.py
+git add logiscan/config.py logiscan/gui_copy.py logiscan/gui.py tests/test_gui_copy.py
 git commit -m "Warn when Already filed matches several PO folders."
 ```
 
