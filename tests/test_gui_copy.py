@@ -81,6 +81,21 @@ class LeftoverReasonTests(unittest.TestCase):
         self.assertEqual(leftover_reason(STATUS_ERROR, None), "Processing failed.")
         self.assertEqual(leftover_reason(STATUS_ERROR, ""), "Processing failed.")
 
+    def test_dest_exists_several_folders_warns(self) -> None:
+        self.assertEqual(
+            leftover_reason(
+                STATUS_DEST_EXISTS,
+                dest_folder="D:\\POs\\PO-1; D:\\POs\\PO-2",
+            ),
+            "This truck code matches more than one PO folder, and a photo for this truck and seal is already in at least one of them.",
+        )
+
+    def test_dest_exists_one_folder_keeps_old_sentence(self) -> None:
+        self.assertEqual(
+            leftover_reason(STATUS_DEST_EXISTS, dest_folder="D:\\POs\\PO-1"),
+            "A photo for this truck and seal is already in the PO folder.",
+        )
+
 
 class LeftoverFlagTests(unittest.TestCase):
     def test_moved_is_not_leftover(self) -> None:
@@ -130,6 +145,17 @@ class InspectFooterTests(unittest.TestCase):
 
     def test_moved_row(self) -> None:
         self.assertEqual(inspect_footer("done.jpg", STATUS_MOVED), "done.jpg was moved.")
+
+    def test_dest_exists_several_folders_footer(self) -> None:
+        text = inspect_footer(
+            "shot.jpg",
+            STATUS_DEST_EXISTS,
+            dest_folder="D:\\POs\\PO-1; D:\\POs\\PO-2",
+        )
+        self.assertEqual(
+            text,
+            "shot.jpg is still in the photos folder. This truck code matches more than one PO folder, and a photo for this truck and seal is already in at least one of them.",
+        )
 
 
 if __name__ == "__main__":

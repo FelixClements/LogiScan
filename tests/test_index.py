@@ -20,9 +20,9 @@ class FolderIndexTests(unittest.TestCase):
             po.mkdir()
             (po / "MRSU8692215-cmr.pdf").write_bytes(b"x")
             index = build_index(root)
-            folder, status = index.lookup_status("MRSU8692215")
+            folders, status = index.lookup_status("MRSU8692215")
             self.assertIsNone(status)
-            self.assertEqual(folder, po.resolve())
+            self.assertEqual(folders, [po.resolve()])
 
     def test_hyphen_and_space_in_filename_normalize(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -34,7 +34,7 @@ class FolderIndexTests(unittest.TestCase):
             index = build_index(root)
             folders, status = index.lookup_status("MRSU8692215")
             self.assertIsNone(status)
-            self.assertEqual(folders, po.resolve())
+            self.assertEqual(folders, [po.resolve()])
 
     def test_same_folder_duplicates_count_as_one(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -46,9 +46,9 @@ class FolderIndexTests(unittest.TestCase):
             index = build_index(root)
             folders, status = index.lookup_status("MRSU8692215")
             self.assertIsNone(status)
-            self.assertEqual(folders, po.resolve())
+            self.assertEqual(folders, [po.resolve()])
 
-    def test_two_po_folders_are_ambiguous(self) -> None:
+    def test_two_po_folders_return_both(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             one = root / "PO-1"
@@ -58,17 +58,17 @@ class FolderIndexTests(unittest.TestCase):
             (one / "MRSU8692215.pdf").write_bytes(b"x")
             (two / "MRSU8692215.pdf").write_bytes(b"x")
             index = build_index(root)
-            folder, status = index.lookup_status("MRSU8692215")
-            self.assertIsNone(folder)
-            self.assertEqual(status, "AMBIGUOUS_FOLDER")
+            folders, status = index.lookup_status("MRSU8692215")
+            self.assertIsNone(status)
+            self.assertEqual(folders, sorted([one.resolve(), two.resolve()], key=str))
 
     def test_unknown_trailer_is_no_folder(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             (root / "empty").mkdir()
             index = build_index(root)
-            folder, status = index.lookup_status("MRSU8692215")
-            self.assertIsNone(folder)
+            folders, status = index.lookup_status("MRSU8692215")
+            self.assertEqual(folders, [])
             self.assertEqual(status, "NO_FOLDER")
 
     def test_invalid_check_digit_filename_is_ignored(self) -> None:
@@ -78,8 +78,8 @@ class FolderIndexTests(unittest.TestCase):
             po.mkdir()
             (po / "MRSU8692214.pdf").write_bytes(b"x")
             index = build_index(root)
-            folder, status = index.lookup_status("MRSU8692215")
-            self.assertIsNone(folder)
+            folders, status = index.lookup_status("MRSU8692215")
+            self.assertEqual(folders, [])
             self.assertEqual(status, "NO_FOLDER")
 
 

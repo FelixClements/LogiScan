@@ -251,7 +251,10 @@ if tk is not None:
             result = self._results.get(iid)
             status = result.status if result is not None else ""
             error = result.error if result is not None else None
-            self.footer_var.set(inspect_footer(iid, status, error))
+            dest_folder = result.dest_folder if result is not None else None
+            self.footer_var.set(
+                inspect_footer(iid, status, error, dest_folder=dest_folder)
+            )
             if not is_leftover(status) or self._photos_dir is None:
                 return
             self._show_preview(self._photos_dir / iid, failed_footer=False)

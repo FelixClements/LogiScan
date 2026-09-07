@@ -15,13 +15,11 @@ class FolderIndex:
     def __init__(self, mapping: dict[str, set[Path]]) -> None:
         self._map = mapping
 
-    def lookup_status(self, trailer: str) -> tuple[Path | None, str | None]:
-        folders = self._map.get(trailer, set())
+    def lookup_status(self, trailer: str) -> tuple[list[Path], str | None]:
+        folders = sorted(self._map.get(trailer, set()), key=str)
         if not folders:
-            return None, "NO_FOLDER"
-        if len(folders) > 1:
-            return None, "AMBIGUOUS_FOLDER"
-        return next(iter(folders)), None
+            return [], "NO_FOLDER"
+        return folders, None
 
 
 def build_index(search_root: Path) -> FolderIndex:

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from logiscan.config import (
+    DEST_FOLDER_SEP,
     STATUS_CONVERT_ERROR,
     STATUS_DEST_EXISTS,
     STATUS_ERROR,
@@ -17,6 +18,7 @@ from logiscan.config import (
     ScanResult,
 )
 from logiscan.extract import ExtractedFields, extract_fields
+from logiscan.gui_copy import leftover_reason
 from logiscan.hardware import enable_opencl
 from logiscan.images import CONVERT_SUFFIXES, enhance_pass2, load_image, prepare_working_image
 from logiscan.index import FolderIndex
@@ -36,42 +38,55 @@ def destination_for(folder: Path, trailer: str, seal: str) -> Path:
     return folder / f"{trailer}_{seal}.jpg"
 
 
-def gate_status(fields: ExtractedFields, index: FolderIndex) -> tuple[str, Path | None]:
+def join_dest_folders(folders: list[Path]) -> str | None:
+    if not folders:
+        return None
+    return DEST_FOLDER_SEP.join(str(path) for path in folders)
+
+
+def gate_status(fields: ExtractedFields, index: FolderIndex) -> tuple[str, list[Path]]:
     if fields.trailer_status:
-        return fields.trailer_status, None
+        return fields.trailer_status, []
     if fields.seal_status:
-        return fields.seal_status, None
+        return fields.seal_status, []
     assert fields.trailer is not None and fields.seal is not None
-    folder, folder_status = index.lookup_status(fields.trailer)
+    folders, folder_status = index.lookup_status(fields.trailer)
     if folder_status:
-        return folder_status, None
-    assert folder is not None
-    dest = destination_for(folder, fields.trailer, fields.seal)
-    if dest.exists():
-        return STATUS_DEST_EXISTS, folder
-    return STATUS_MOVED, folder
+        return folder_status, []
+    if any(
+        destination_for(folder, fields.trailer, fields.seal).exists()
+        for folder in folders
+    ):
+        return STATUS_DEST_EXISTS, folders
+    return STATUS_MOVED, folders
 
 
-def commit_move(
+def commit_copies(
     *,
     original: Path,
     working: Path,
-    dest: Path,
+    dests: list[Path],
     processed_dir: Path,
 ) -> None:
-    shutil.move(str(working), str(dest))
-    if original.suffix.lower() not in CONVERT_SUFFIXES:
+    for dest in dests:
+        shutil.copy2(str(working), str(dest))
+    converting = original.suffix.lower() in CONVERT_SUFFIXES
+    if converting:
+        if working != original:
+            working.unlink(missing_ok=True)
+        try:
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(original), str(processed_dir / original.name))
+        except OSError as exc:
+            LOGGER.error(
+                "Copied JPEG to %s but failed to archive %s: %s",
+                dests,
+                original,
+                exc,
+            )
         return
-    try:
-        processed_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(original), str(processed_dir / original.name))
-    except OSError as exc:
-        LOGGER.error(
-            "Moved JPEG to %s but failed to archive %s: %s",
-            dest,
-            original,
-            exc,
-        )
+    if original.exists():
+        original.unlink()
 
 
 class OCRProcessor:
@@ -133,9 +148,22 @@ class OCRProcessor:
             original.name,
             " | ".join(layout.split())[:400],
         )
-        status, folder = gate_status(fields, self._index)
-        dest_folder = str(folder) if folder is not None else None
+        status, folders = gate_status(fields, self._index)
+        dest_folder = join_dest_folders(folders)
         if status != STATUS_MOVED:
+            if (
+                status == STATUS_DEST_EXISTS
+                and dest_folder
+                and DEST_FOLDER_SEP in dest_folder
+            ):
+                LOGGER.warning(
+                    "%s %s | trailer=%s seal=%s dest=%s",
+                    leftover_reason(status, dest_folder=dest_folder),
+                    original.name,
+                    fields.trailer,
+                    fields.seal,
+                    dest_folder,
+                )
             return ScanResult(
                 timestamp=timestamp,
                 filename=original.name,
@@ -144,12 +172,14 @@ class OCRProcessor:
                 dest_folder=dest_folder,
                 status=status,
             )
-        assert folder is not None and fields.trailer is not None and fields.seal is not None
-        dest = destination_for(folder, fields.trailer, fields.seal)
-        commit_move(
+        assert fields.trailer is not None and fields.seal is not None
+        dests = [
+            destination_for(folder, fields.trailer, fields.seal) for folder in folders
+        ]
+        commit_copies(
             original=original,
             working=working,
-            dest=dest,
+            dests=dests,
             processed_dir=self.config.processed_dir,
         )
         return ScanResult(
